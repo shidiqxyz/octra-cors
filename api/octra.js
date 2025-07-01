@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import axios from "axios";
+import serverless from "serverless-http";
 
 const app = express();
 app.use(cors());
@@ -8,6 +9,7 @@ app.use(express.json());
 
 const OCTRA_BASE = "https://octra.network";
 
+// mirror exactly what OctraAPI expects
 app.get("/api/balance/:address", async (req, res) => {
   try {
     const { address } = req.params;
@@ -74,6 +76,7 @@ app.post("/api/send-tx", async (req, res) => {
   }
 });
 
+// fallback passthrough
 app.use("/api/*", async (req, res) => {
   try {
     const target = req.originalUrl.replace(/^\/api/, "");
@@ -91,7 +94,4 @@ app.use("/api/*", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Octra proxy listening on port ${PORT}`);
-});
+export default serverless(app);
