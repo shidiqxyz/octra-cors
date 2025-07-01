@@ -1,66 +1,46 @@
-import express from "express";
-import cors from "cors";
-import axios from "axios";
-import serverless from "serverless-http";
+import axios from 'axios';
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const OCTRA_BASE = 'https://octra.network';
 
-const OCTRA_BASE = "https://octra.network";
+export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-// universal proxy handler
-const safeForward = async (req, res, targetUrl) => {
+  // Preflight
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
   try {
+    // Hitung path + query yang akan diteruskan
+    const rawPath = req.url.replace(/^\/api/, '');
+    const [path, query = ''] = rawPath.split('?');
+    const targetUrl = `${OCTRA_BASE}${path}${query ? '?' + query : ''}`;
+
+    // Forward ke Octra
     const response = await axios({
       method: req.method,
       url: targetUrl,
       data: req.body,
-      headers: req.headers,
+      headers: { 'Content-Type': 'application/json' },
       timeout: 10000,
-      validateStatus: () => true, // do not throw on 4xx/5xx
+      validateStatus: () => true
     });
 
-    const contentType = response.headers["content-type"] || "";
-
-    if (contentType.includes("application/json")) {
-      res.status(response.status).json(response.data);
+    // Mirror status & body
+    res.status(response.status);
+    const ct = response.headers['content-type'] || '';
+    if (ct.includes('application/json')) {
+      res.json(response.data);
     } else {
-      res.status(response.status).send(response.data);
+      res.send(response.data);
     }
+
   } catch (err) {
-    console.error("proxy error:", err.message);
-    res.status(500).send("Internal proxy error: " + err.message);
+    console.error('Proxy error:', err.message);
+    res.status(500).send('Proxy error: ' + err.message);
   }
-};
-
-// match your OctraAPI endpoints:
-app.get("/api/balance/:address", (req, res) => {
-  safeForward(req, res, `${OCTRA_BASE}/balance/${req.params.address}`);
-});
-
-app.get("/api/staging", (req, res) => {
-  safeForward(req, res, `${OCTRA_BASE}/staging`);
-});
-
-app.get("/api/address/:address", (req, res) => {
-  const limit = req.query.limit || 20;
-  safeForward(req, res, `${OCTRA_BASE}/address/${req.params.address}?limit=${limit}`);
-});
-
-app.get("/api/tx/:hash", (req, res) => {
-  safeForward(req, res, `${OCTRA_BASE}/tx/${req.params.hash}`);
-});
-
-app.post("/api/send-tx", (req, res) => {
-  safeForward(req, res, `${OCTRA_BASE}/send-tx`);
-});
-
-// fallback passthrough
-app.all("/api/*", (req, res) => {
-  const forwardPath = req.originalUrl.replace(/^\/api/, "");
-  safeForward(req, res, `${OCTRA_BASE}${forwardPath}`);
-});
-
-// serverless export
-export default serverless(app);
+}
