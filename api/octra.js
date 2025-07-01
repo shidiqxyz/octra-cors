@@ -9,89 +9,63 @@ app.use(express.json());
 
 const OCTRA_BASE = "https://octra.network";
 
-// mirror exactly what OctraAPI expects
-app.get("/api/balance/:address", async (req, res) => {
+// safe forward
+const safeForward = async (req, res, targetUrl) => {
   try {
-    const { address } = req.params;
-    const response = await axios.get(`${OCTRA_BASE}/balance/${address}`, {
-      timeout: 10000,
-    });
-    res.send(response.data);
-  } catch (err) {
-    console.error("balance error", err.message);
-    res.status(500).send(err.message);
-  }
-});
-
-app.get("/api/staging", async (req, res) => {
-  try {
-    const response = await axios.get(`${OCTRA_BASE}/staging`, {
-      timeout: 10000,
-    });
-    res.send(response.data);
-  } catch (err) {
-    console.error("staging error", err.message);
-    res.status(500).send(err.message);
-  }
-});
-
-app.get("/api/address/:address", async (req, res) => {
-  try {
-    const { address } = req.params;
-    const { limit } = req.query;
-    const response = await axios.get(
-      `${OCTRA_BASE}/address/${address}?limit=${limit || 20}`,
-      { timeout: 10000 }
-    );
-    res.send(response.data);
-  } catch (err) {
-    console.error("address error", err.message);
-    res.status(500).send(err.message);
-  }
-});
-
-app.get("/api/tx/:hash", async (req, res) => {
-  try {
-    const { hash } = req.params;
-    const response = await axios.get(`${OCTRA_BASE}/tx/${hash}`, {
-      timeout: 10000,
-    });
-    res.send(response.data);
-  } catch (err) {
-    console.error("tx error", err.message);
-    res.status(500).send(err.message);
-  }
-});
-
-app.post("/api/send-tx", async (req, res) => {
-  try {
-    const txData = req.body;
-    const response = await axios.post(`${OCTRA_BASE}/send-tx`, txData, {
-      timeout: 10000,
-    });
-    res.send(response.data);
-  } catch (err) {
-    console.error("send-tx error", err.message);
-    res.status(500).send(err.message);
-  }
-});
-
-// fallback passthrough
-app.use("/api/*", async (req, res) => {
-  try {
-    const target = req.originalUrl.replace(/^\/api/, "");
     const result = await axios({
       method: req.method,
-      url: `${OCTRA_BASE}${target}`,
+      url: targetUrl,
       data: req.body,
       headers: req.headers,
       timeout: 10000,
+      validateStatus: () => true // do not throw on 4xx/5xx
     });
-    res.status(result.status).send(result.data);
+
+    // if text response
+    if (typeof result.data === "string") {
+      res.status(result.status).send(result.data);
+    } else {
+      res.status(result.status).json(result.data);
+    }
   } catch (err) {
-    console.error("generic passthrough error", err.message);
+    console.error("proxy error:", err.message);
     res.status(500).send(err.message);
   }
+};
+
+// GET balance
+app.get("/api/balance/:address", (req, res) => {
+  const { address } = req.params;
+  safeForward(req, res, `${OCTRA_BASE}/balance/${address}`);
+});
+
+// GET staging
+app.get("/api/staging", (req, res) => {
+  safeForward(req, res, `${OCTRA_BASE}/staging`);
+});
+
+// GET address history
+app.get("/api/address/:address", (req, res) => {
+  const { address } = req.params;
+  const limit = req.query.limit || 20;
+  safeForward(req, res, `${OCTRA_BASE}/address/${address}?limit=${limit}`);
+});
+
+// GET tx
+app.get("/api/tx/:hash", (req, res) => {
+  const { hash } = req.params;
+  safeForward(req, res, `${OCTRA_BASE}/tx/${hash}`);
+});
+
+// POST send-tx
+app.post("/api/send-tx", (req, res) => {
+  safeForward(req, res, `${OCTRA_BASE}/send-tx`);
+});
+
+// fallback
+app.use("/api/*", (req, res) => {
+  const target = req.originalUrl.replace(/^\/api/, "");
+  safeForward(req, res, `${OCTRA_BASE}${target}`);
 });
 
 export default serverless(app);
