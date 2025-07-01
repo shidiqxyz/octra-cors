@@ -9,63 +9,58 @@ app.use(express.json());
 
 const OCTRA_BASE = "https://octra.network";
 
-// safe forward
+// universal proxy handler
 const safeForward = async (req, res, targetUrl) => {
   try {
-    const result = await axios({
+    const response = await axios({
       method: req.method,
       url: targetUrl,
       data: req.body,
       headers: req.headers,
       timeout: 10000,
-      validateStatus: () => true // do not throw on 4xx/5xx
+      validateStatus: () => true, // do not throw on 4xx/5xx
     });
 
-    // if text response
-    if (typeof result.data === "string") {
-      res.status(result.status).send(result.data);
+    const contentType = response.headers["content-type"] || "";
+
+    if (contentType.includes("application/json")) {
+      res.status(response.status).json(response.data);
     } else {
-      res.status(result.status).json(result.data);
+      res.status(response.status).send(response.data);
     }
   } catch (err) {
     console.error("proxy error:", err.message);
-    res.status(500).send(err.message);
+    res.status(500).send("Internal proxy error: " + err.message);
   }
 };
 
-// GET balance
+// match your OctraAPI endpoints:
 app.get("/api/balance/:address", (req, res) => {
-  const { address } = req.params;
-  safeForward(req, res, `${OCTRA_BASE}/balance/${address}`);
+  safeForward(req, res, `${OCTRA_BASE}/balance/${req.params.address}`);
 });
 
-// GET staging
 app.get("/api/staging", (req, res) => {
   safeForward(req, res, `${OCTRA_BASE}/staging`);
 });
 
-// GET address history
 app.get("/api/address/:address", (req, res) => {
-  const { address } = req.params;
   const limit = req.query.limit || 20;
-  safeForward(req, res, `${OCTRA_BASE}/address/${address}?limit=${limit}`);
+  safeForward(req, res, `${OCTRA_BASE}/address/${req.params.address}?limit=${limit}`);
 });
 
-// GET tx
 app.get("/api/tx/:hash", (req, res) => {
-  const { hash } = req.params;
-  safeForward(req, res, `${OCTRA_BASE}/tx/${hash}`);
+  safeForward(req, res, `${OCTRA_BASE}/tx/${req.params.hash}`);
 });
 
-// POST send-tx
 app.post("/api/send-tx", (req, res) => {
   safeForward(req, res, `${OCTRA_BASE}/send-tx`);
 });
 
-// fallback
-app.use("/api/*", (req, res) => {
-  const target = req.originalUrl.replace(/^\/api/, "");
-  safeForward(req, res, `${OCTRA_BASE}${target}`);
+// fallback passthrough
+app.all("/api/*", (req, res) => {
+  const forwardPath = req.originalUrl.replace(/^\/api/, "");
+  safeForward(req, res, `${OCTRA_BASE}${forwardPath}`);
 });
 
+// serverless export
 export default serverless(app);
